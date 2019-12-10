@@ -534,17 +534,17 @@ func (m *Machine) startup(command string, extracontent [][2]string) (int, error)
 		w.WriteDirectory("/lib", 0755)
 	}
 
-	prefix := ""
-	if mergedUsrSystem() {
-		prefix = "/usr"
-	}
-
 	// search for busybox; in some distros it's located under /sbin
 	busybox, err := exec.LookPath("busybox")
 	if err != nil {
 		return -1, err
 	}
-	w.CopyFileTo(busybox, prefix + "/bin/busybox")
+
+	if mergedUsrSystem() {
+		w.CopyFileTo(busybox, "/usr/bin/busybox")
+	} else {
+		w.CopyFileTo(busybox, "/bin/busybox")
+	}
 
 	/* Amd64 dynamic linker */
 	w.CopyFile("/lib64/ld-linux-x86-64.so.2")
