@@ -135,6 +135,15 @@ func Supported() bool {
 	return err == nil
 }
 
+func stringInSlice(a string, list []string) bool {
+	for _, b := range list {
+		if b == a {
+			return true
+		}
+	}
+	return false
+}
+
 const initScript = `#!/bin/busybox sh
 
 busybox mount -t proc proc /proc
