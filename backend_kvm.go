@@ -102,6 +102,7 @@ func (b kvmBackend) InitrdModules() []string {
 	return []string{"kernel/drivers/char/virtio_console.ko",
 			"kernel/drivers/virtio/virtio.ko",
 			"kernel/drivers/virtio/virtio_pci.ko",
+			"kernel/drivers/virtio/virtio_pci_modern_dev.ko",
 			"kernel/net/9p/9pnet.ko",
 			"kernel/drivers/virtio/virtio_ring.ko",
 			"kernel/fs/9p/9p.ko",
