@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -74,14 +75,56 @@ func (b kvmBackend) hostKernelRelease() (string, error) {
 	return "", fmt.Errorf("No kernel found")
 }
 
+func (b kvmBackend) hostKernelPath(kernelRelease string) (string, error) {
+	/* First, try to find a kernel with a well-known name */
+	kernelPath := filepath.Join("/boot/vmlinuz-", kernelRelease)
+	if _, err := os.Stat(kernelPath); err == nil {
+		return kernelPath, nil
+	}
+
+	/* Otherwise, inspect each kernel installed, and look for the release
+	 * string straight in the binary. Not pretty, but it works. */
+	needle := kernelRelease
+	if !strings.HasSuffix(needle, " ") {
+		needle += " "
+	}
+
+	kerneldir := "/boot"
+	files, err := ioutil.ReadDir(kerneldir)
+	if err != nil {
+		return "", err
+	}
+
+	for _, f := range files {
+		if !strings.HasPrefix(f.Name(), "vmlinuz-") || f.IsDir() {
+			continue
+		}
+
+		kernelPath := filepath.Join(kerneldir, f.Name())
+		buf, err := ioutil.ReadFile(kernelPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Failed to read kernel:", err)
+			continue
+		}
+
+		if !bytes.Contains(buf, []byte(needle)) {
+			continue
+		}
+
+		return kernelPath, nil
+	}
+
+	return "", fmt.Errorf("No kernel found for release %s", kernelRelease)
+}
+
 func (b kvmBackend) KernelPath() (string, string, error) {
 	kernelRelease, err := b.hostKernelRelease()
 	if err != nil {
 		return "", "", err
 	}
 
-	kernelPath := "/boot/vmlinuz-" + kernelRelease
-	if _, err := os.Stat(kernelPath); err != nil {
+	kernelPath, err := b.hostKernelPath(kernelRelease)
+	if err != nil {
 		return "", "", err
 	}
 
