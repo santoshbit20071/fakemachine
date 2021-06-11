@@ -438,6 +438,9 @@ func (m *Machine) writerKernelModules(w *writerhelper.WriterHelper, moddir strin
 				modpath += ".xz"
 			}
 			if _, err := os.Stat(modpath); err != nil {
+				modpath += ".zst"
+			}
+			if _, err := os.Stat(modpath); err != nil {
 				return err
 			}
 		}
