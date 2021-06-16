@@ -4,8 +4,9 @@
 package fakemachine
 
 import (
-	"bufio"
 	"bytes"
+	"bufio"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -29,6 +30,49 @@ func mergedUsrSystem() bool {
 
 	return false
 }
+
+// Parse modinfo result and get path of module specified by name
+func getModPath(modname string) string {
+	out, err := exec.Command("modinfo", modname).Output()
+	if err != nil {
+		return ""
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	scanner.Split(bufio.ScanLines)
+	for scanner.Scan() {
+		field := strings.Split(strings.TrimSpace(scanner.Text()), ":")
+		if strings.TrimSpace(field[0]) == "filename" {
+			return strings.TrimSpace(field[1])
+		}
+	}
+	return ""
+}
+
+// Parse modinfo result and get dependencies of module
+// Returns slice of module name
+func getModDepends(modname string) []string {
+	out, err := exec.Command("modinfo", modname).Output()
+	if err != nil {
+		return nil
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	scanner.Split(bufio.ScanLines)
+	var deplist []string
+	for scanner.Scan() {
+		fields := strings.Split(strings.TrimSpace(scanner.Text()), ":")
+		if strings.TrimSpace(fields[0]) == "depends"  {
+			t := strings.TrimSpace(fields[1])
+			if t != "" {
+				list := strings.Split(t, ",")
+				deplist = append(deplist, list...)
+			}
+		}
+	}
+	return deplist
+}
+
 
 // Evaluate any symbolic link, then return the path's directory. Returns an
 // absolute path. Think of it as realpath(1) + dirname(1) in bash.
@@ -389,13 +433,13 @@ func (m *Machine) SetEnviron(environ []string) {
 	m.Environ = environ
 }
 
+
 func (m *Machine) writerKernelModules(w *writerhelper.WriterHelper, moddir string, modules []string) error {
 	if len(modules) == 0 {
 		return nil
 	}
 
-	modules = append(modules,
-			"modules.order",
+	modfiles := []string {"modules.order",
 			"modules.builtin",
 			"modules.dep",
 			"modules.dep.bin",
@@ -405,45 +449,70 @@ func (m *Machine) writerKernelModules(w *writerhelper.WriterHelper, moddir strin
 			"modules.symbols",
 			"modules.symbols.bin",
 			"modules.builtin.bin",
-			"modules.devname")
+			"modules.devname"}
 
-	// build a list of built-in modules so that we don’t attempt to copy them
-	var builtinModules = make(map[string]bool)
 
-	f, err := os.Open(path.Join(moddir, "modules.builtin"))
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		module := scanner.Text()
-		builtinModules[module] = true
+	for _, v := range modfiles {
+		if err := w.CopyFile(moddir + "/" + v); err != nil {
+			return err
+		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return err
+	prefix := ""
+	if mergedUsrSystem() {
+		prefix = "/usr"
 	}
+
+	copiedModules := make(map[string]bool)
 
 	for _, v := range modules {
-		if builtinModules[v] {
+		modname := strings.TrimSuffix(v[strings.LastIndex(v, "/") + 1 :], ".ko")
+		modpath := getModPath(modname)
+
+		if modpath == "" {
+			return errors.New("Modules path couldn't be determined")
+		}
+
+		if modpath == "(builtin)" || copiedModules[modname] {
 			continue
 		}
 
-		modpath := path.Join(moddir, v)
-
-		if strings.HasSuffix(modpath, ".ko") {
-			if _, err := os.Stat(modpath); err != nil {
-				modpath += ".xz"
-			}
-			if _, err := os.Stat(modpath); err != nil {
-				return err
-			}
+		if _, err := os.Stat(prefix + modpath); os.IsNotExist(err) {
+			return err
 		}
 
-		if err := w.CopyFile(modpath); err != nil {
+		if err := w.CopyFile(prefix + modpath); err != nil {
 			return err
+		} else {
+			copiedModules[modname] = true
+		}
+
+		// copy dependent module of copied module
+		modlist := getModDepends(modname)
+		if len(modlist) == 0 {
+			continue
+		}
+
+		for _, s := range modlist {
+			modpath := getModPath(s)
+
+			if modpath == "" {
+				return errors.New("Modules path couldn't be determined")
+			}
+
+			if modpath == "(builtin)" || copiedModules[s] {
+				continue
+			}
+
+			if _, err := os.Stat(prefix + modpath); os.IsNotExist(err) {
+				return err
+			}
+
+			if err := w.CopyFile(prefix + modpath); err != nil {
+				return err
+			} else {
+ 				copiedModules[s] = true
+			}
 		}
 	}
 	return nil
