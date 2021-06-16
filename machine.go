@@ -433,16 +433,20 @@ func (m *Machine) writerKernelModules(w *writerhelper.WriterHelper, moddir strin
 
 		modpath := path.Join(moddir, v)
 
+		suffix := ""
 		if strings.HasSuffix(modpath, ".ko") {
 			if _, err := os.Stat(modpath); err != nil {
-				modpath += ".xz"
+				if _, err := os.Stat(modpath + ".xz"); err == nil {
+					suffix = ".xz"
+				} else if _, err := os.Stat(modpath + ".zst"); err == nil {
+					suffix = ".zst"
+				}
+				modpath += suffix
 			}
-			if _, err := os.Stat(modpath); err != nil {
-				modpath += ".zst"
-			}
-			if _, err := os.Stat(modpath); err != nil {
-				return err
-			}
+		}
+
+		if _, err := os.Stat(modpath); err != nil {
+			continue
 		}
 
 		if err := w.CopyFile(modpath); err != nil {
